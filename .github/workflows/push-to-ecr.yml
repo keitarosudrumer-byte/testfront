@@ -1,74 +1,35 @@
-name: Build and push to ECR
-
-env:
-  ECR_REGISTRY: 163465570567.dkr.ecr.ap-northeast-1.amazonaws.com/githubtest
-  ECS_CLUSTER_NAME: githubtest-ecs-cluster
-  FRONT_SERVICE_NAME: githubtest-front-svc
-  BACK_SERVICE_NAME: githubtest-back-svc
+name: Build And Push
 
 on:
-  push:
-    branches: [ main ]
-  workflow_dispatch:
-    inputs:
-      image_tag:
-        description: 'Image tag to build/push'
-        required: false
-        default: 'latest'
-      deploy:
-        description: 'Whether to update ECS services after push (true/false)'
-        required: false
-        default: 'true'
+  workflow_call:
 
-permissions:
-  id-token: write
-  contents: read
-
+env:
+  AWS_REGION: ap-northeast-1
+  ECR_REGISTRY: 163465570567.dkr.ecr.ap-northeast-1.amazonaws.com
 jobs:
-  build-and-push:
+  build:
+    name: Build And Push
     runs-on: ubuntu-latest
-
+    permissions:
+      id-token: write
+      contents: read
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.arn:aws:iam::163465570567:role/example-vpc-gh-actions-role }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.ECR_REGISTRY }}
+      - name: Build and push API
+        uses: docker/build-push-action@v5
+        with:
+          push: true
+          provenance: false
+          tags: ${{ env.ECR_REGISTRY }}/sample-image-ecr:latest
 
-    - name: Configure AWS credentials (OIDC)
-      uses: aws-actions/configure-aws-credentials@v2
-      with:
-        role-to-assume: ${{ secrets.AWSROLE }}
-        aws-region: ap-northeast-1
-
-    - name: Login to Amazon ECR
-      id: login-ecr
-      run: |
-        aws ecr get-login-password --region ap-northeast-1 | docker login --username AWS --password-stdin ${ECR_REGISTRY}
-
-    - name: Build, tag, and push image
-      env:
-        ECR_REGISTRY: ${{ env.ECR_REGISTRY }}
-        IMAGE_NAME: testfront
-        IMAGE_TAG: ${{ github.event.inputs.image_tag || 'latest' }}
-      run: |
-        docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
-        docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${ECR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
-        docker push ${ECR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
-
-    # - name: Print pushed image
-    #   run: echo "Pushed: ${ECR_REGISTRY}/testfront:latest"
-
-    - name: Update ECS service to pull new image
-      if: ${{ github.event.inputs.deploy == 'true' }}
-      env:
-        CLUSTER_NAME: ${{ env.ECS_CLUSTER_NAME }}
-        FRONT_SERVICE: ${{ env.FRONT_SERVICE_NAME }}
-        BACK_SERVICE: ${{ env.BACK_SERVICE_NAME }}
-        AWS_REGION: ap-northeast-1
-      run: |
-        # Update front service
-        if [ -n "$CLUSTER_NAME" ] && [ -n "$FRONT_SERVICE" ]; then
-          aws ecs update-service --cluster "$CLUSTER_NAME" --service "$FRONT_SERVICE" --force-new-deployment --region "$AWS_REGION"
-        fi
-        # Optionally update back service
-        if [ -n "$CLUSTER_NAME" ] && [ -n "$BACK_SERVICE" ]; then
-          aws ecs update-service --cluster "$CLUSTER_NAME" --service "$BACK_SERVICE" --force-new-deployment --region "$AWS_REGION"
-        fi
