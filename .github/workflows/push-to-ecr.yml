@@ -1,5 +1,11 @@
 name: Build and push to ECR
 
+env:
+  ECR_REGISTRY: arn:aws:ecr:ap-northeast-1:163465570567:repository/githubtest
+  ECS_CLUSTER_NAME: githubtest-ecs-cluster
+  FRONT_SERVICE_NAME: githubtest-front-svc
+  BACK_SERVICE_NAME: githubtest-back-svc
+
 on:
   push:
     branches: [ main ]
@@ -55,9 +61,9 @@ jobs:
     - name: Update ECS service to pull new image
       if: ${{ github.event.inputs.deploy == 'true' }}
       env:
-        CLUSTER_NAME: ${{ secrets.ECS_CLUSTER_NAME }}
-        FRONT_SERVICE: ${{ secrets.FRONT_SERVICE_NAME }}
-        BACK_SERVICE: ${{ secrets.BACK_SERVICE_NAME }}
+        CLUSTER_NAME: ${{ env.ECS_CLUSTER_NAME }}
+        FRONT_SERVICE: ${{ env.FRONT_SERVICE_NAME }}
+        BACK_SERVICE: ${{ env.BACK_SERVICE_NAME }}
         AWS_REGION: ap-northeast-1
       run: |
         # Update front service
