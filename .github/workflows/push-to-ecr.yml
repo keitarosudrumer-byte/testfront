@@ -1,0 +1,70 @@
+name: Build and push to ECR
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Image tag to build/push'
+        required: false
+        default: 'latest'
+      deploy:
+        description: 'Whether to update ECS services after push (true/false)'
+        required: false
+        default: 'true'
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials (OIDC)
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        role-to-assume: ${{ secrets.AWSROLE }}
+        aws-region: ap-northeast-1
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      run: |
+        aws ecr get-login-password --region ap-northeast-1 | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+      env:
+        ECR_REGISTRY: arn:aws:ecr:ap-northeast-1:163465570567:repository/githubtest
+
+    - name: Build, tag, and push image
+      env:
+        ECR_REGISTRY: ${{ env.ECR_REGISTRY }}
+        IMAGE_NAME: testfront
+        IMAGE_TAG: ${{ github.event.inputs.image_tag || 'latest' }}
+      run: |
+        docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
+        docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${ECR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
+        docker push ${ECR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
+
+    # - name: Print pushed image
+    #   run: echo "Pushed: ${ECR_REGISTRY}/testfront:latest"
+
+    - name: Update ECS service to pull new image
+      if: ${{ github.event.inputs.deploy == 'true' }}
+      env:
+        CLUSTER_NAME: ${{ secrets.ECS_CLUSTER_NAME }}
+        FRONT_SERVICE: ${{ secrets.FRONT_SERVICE_NAME }}
+        BACK_SERVICE: ${{ secrets.BACK_SERVICE_NAME }}
+        AWS_REGION: ap-northeast-1
+      run: |
+        # Update front service
+        if [ -n "$CLUSTER_NAME" ] && [ -n "$FRONT_SERVICE" ]; then
+          aws ecs update-service --cluster "$CLUSTER_NAME" --service "$FRONT_SERVICE" --force-new-deployment --region "$AWS_REGION"
+        fi
+        # Optionally update back service
+        if [ -n "$CLUSTER_NAME" ] && [ -n "$BACK_SERVICE" ]; then
+          aws ecs update-service --cluster "$CLUSTER_NAME" --service "$BACK_SERVICE" --force-new-deployment --region "$AWS_REGION"
+        fi
